@@ -282,9 +282,11 @@ entry and the appeal entry sit next to each other.
    `under_review`. Re-appealing does not reset or escalate anything, and every
    attempt stays individually visible in the audit log.
 4. Very short submission, like a haiku or one sentence. The stylometry and
-   lexical signals are unstable here. The pipeline down-weights the structural
-   signals under a minimum length and leans toward Uncertain, so a creator isn't
-   accused on thin evidence.
+   lexical signals are unstable here. For text under a minimum length the
+   pipeline treats it as thin evidence and shrinks the combined score toward
+   0.5, which pulls short text toward Uncertain. A short casual note can still
+   land human, but a short AI-ish note gets pulled back so a creator isn't
+   accused on a sentence or two.
 
 ---
 

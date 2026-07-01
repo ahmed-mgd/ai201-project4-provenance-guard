@@ -36,7 +36,7 @@ def _connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     with _connect() as conn:
-        conn.execute(
+        conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS submissions (
                 content_id       TEXT PRIMARY KEY,
@@ -50,6 +50,12 @@ def init_db() -> None:
                 lexical_score    REAL NOT NULL,
                 status           TEXT NOT NULL DEFAULT 'classified',
                 created_at       TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS appeals (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_id    TEXT NOT NULL REFERENCES submissions(content_id),
+                creator_reasoning TEXT NOT NULL,
+                created_at    TEXT NOT NULL
             );
             """
         )
@@ -86,6 +92,41 @@ def get_submission(content_id: str) -> dict | None:
             "SELECT * FROM submissions WHERE content_id = ?", (content_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def save_appeal(content_id: str, creator_reasoning: str) -> dict:
+    """Record an appeal, flip the submission to under_review, log it.
+
+    Writes the appeal to the audit log next to the original classification, so a
+    reviewer sees both together. Returns the updated submission row.
+    """
+    created_at = now_iso()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO appeals (content_id, creator_reasoning, created_at)
+               VALUES (?, ?, ?)""",
+            (content_id, creator_reasoning, created_at),
+        )
+        conn.execute(
+            "UPDATE submissions SET status = 'under_review' WHERE content_id = ?",
+            (content_id,),
+        )
+        row = conn.execute(
+            "SELECT * FROM submissions WHERE content_id = ?", (content_id,)
+        ).fetchone()
+
+    submission = dict(row)
+    append_audit({
+        "event": "appeal",
+        "content_id": content_id,
+        "creator_id": submission["creator_id"],
+        "timestamp": created_at,
+        "appeal_reasoning": creator_reasoning,
+        "original_attribution": submission["attribution"],
+        "original_confidence": submission["confidence"],
+        "status": "under_review",
+    })
+    return submission
 
 
 def append_audit(entry: dict) -> None:

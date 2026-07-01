@@ -13,10 +13,12 @@ from .signals import lexical_signal, llm_signal, stylometry_signal
 # lexical lowest (most evadable). Matches planning.md.
 WEIGHTS = {"llm": 0.50, "stylometry": 0.30, "lexical": 0.20}
 
-# Down-weight the structural signals below this word count; they are unstable on
-# tiny inputs (planning.md → edge case: very short submission).
+# Below this word count we treat the text as thin evidence and shrink the
+# combined score toward 0.5 (planning.md → edge case: very short submission).
+# This pulls short text toward Uncertain so a creator is not accused on a
+# sentence or two. SHRINK = 0.5 halves the distance from 0.5.
 SHORT_TEXT_WORDS = 25
-SHORT_TEXT_WEIGHTS = {"llm": 0.80, "stylometry": 0.10, "lexical": 0.10}
+SHORT_TEXT_SHRINK = 0.5
 
 # Attribution thresholds on the combined p_ai. Calibrated in M4 against the
 # reference inputs: a weighted average of three noisy signals compresses toward
@@ -37,11 +39,17 @@ def classify(text: str) -> dict:
         "lexical": lexical_signal.analyze(text),
     }
 
+    weights = WEIGHTS
+    probability_ai = sum(weights[name] * signals[name]["p_ai"] for name in weights)
+
+    # Thin evidence: shrink toward 0.5 so short text can't produce a confident
+    # accusation. A clearly-human short note can still land human; a short AI-ish
+    # note gets pulled back to Uncertain.
     word_count = len((text or "").split())
     short_text = word_count < SHORT_TEXT_WORDS
-    weights = SHORT_TEXT_WEIGHTS if short_text else WEIGHTS
+    if short_text:
+        probability_ai = 0.5 + (probability_ai - 0.5) * SHORT_TEXT_SHRINK
 
-    probability_ai = sum(weights[name] * signals[name]["p_ai"] for name in weights)
     probability_ai = round(_clamp(probability_ai), 3)
     confidence = round(max(probability_ai, 1.0 - probability_ai), 3)
     attribution = attribution_from_score(probability_ai)

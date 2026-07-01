@@ -1,27 +1,26 @@
-"""Provenance Guard — Flask API (Milestone 4).
-
-Scope so far:
-  POST /submit   classify text with the multi-signal ensemble, return a result
-  GET  /log      return recent audit-log entries as JSON
-  GET  /health   liveness check
-
-The label is still a placeholder here. Milestone 5 adds the real transparency
-label, the appeal endpoint, and rate limiting.
-"""
-
 from __future__ import annotations
 
 import uuid
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
-from provenance_guard import pipeline, store
+from provenance_guard import labels, pipeline, store
 
 load_dotenv()
 
 app = Flask(__name__)
 store.init_db()
+
+# Rate limiting
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 
 @app.get("/health")
@@ -30,6 +29,7 @@ def health():
 
 
 @app.post("/submit")
+@limiter.limit("10 per minute;100 per day")
 def submit():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -38,17 +38,12 @@ def submit():
     if not text:
         return jsonify({"error": "Field 'text' is required and cannot be empty."}), 400
 
-    # Run the multi-signal ensemble: combined probability_ai, confidence,
-    # attribution, and each signal's individual score.
+    # Run the multi-signal ensemble.
     result = pipeline.classify(text)
     signals = result["signals"]
 
-    # Label is still a placeholder; the real transparency label lands in M5.
-    label = {
-        "variant": "placeholder",
-        "text": f"[placeholder] attribution={result['attribution']} "
-                f"(real label added in Milestone 5)",
-    }
+    # Real transparency label, chosen by the confidence/verdict.
+    label = labels.build_label(result["probability_ai"], result["confidence"])
 
     content_id = str(uuid.uuid4())
     created_at = store.now_iso()
@@ -67,9 +62,8 @@ def submit():
         "created_at": created_at,
     })
 
-    # Audit log records each signal's individual score alongside the combined
-    # confidence and probability.
     store.append_audit({
+        "event": "classification",
         "content_id": content_id,
         "creator_id": creator_id,
         "timestamp": created_at,
@@ -82,6 +76,7 @@ def submit():
             "lexical": signals["lexical"]["p_ai"],
         },
         "weights": result["weights"],
+        "label_variant": label["variant"],
         "status": "classified",
     })
 
@@ -100,9 +95,43 @@ def submit():
     })
 
 
+@app.post("/appeal")
+@limiter.limit("20 per hour")
+def appeal():
+    data = request.get_json(silent=True) or {}
+    content_id = data.get("content_id")
+    creator_reasoning = (data.get("creator_reasoning") or "").strip()
+
+    if not content_id:
+        return jsonify({"error": "Field 'content_id' is required."}), 400
+    if not creator_reasoning:
+        return jsonify({"error": "Field 'creator_reasoning' is required and cannot be empty."}), 400
+
+    submission = store.get_submission(content_id)
+    if submission is None:
+        return jsonify({"error": f"No submission with content_id {content_id}."}), 404
+
+    updated = store.save_appeal(content_id, creator_reasoning)
+    return jsonify({
+        "content_id": content_id,
+        "status": updated["status"],
+        "message": "Appeal received. This submission is now under review.",
+        "appeal_reasoning": creator_reasoning,
+        "original_attribution": submission["attribution"],
+    })
+
+
 @app.get("/log")
 def log():
     return jsonify({"entries": store.read_audit_log()})
+
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({
+        "error": "Rate limit exceeded. Please slow down and try again later.",
+        "detail": str(e.description),
+    }), 429
 
 
 if __name__ == "__main__":
