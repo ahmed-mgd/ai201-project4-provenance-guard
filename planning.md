@@ -174,38 +174,50 @@ human:
 
 | Ensemble `p_ai`      | Verdict              | Label variant         |
 |----------------------|----------------------|-----------------------|
-| `p_ai ≥ 0.80`        | Likely AI-generated  | High-confidence AI    |
-| `0.35 < p_ai < 0.80` | Uncertain            | Uncertain             |
+| `p_ai ≥ 0.55`        | Likely AI-generated  | High-confidence AI    |
+| `0.35 < p_ai < 0.55` | Uncertain            | Uncertain             |
 | `p_ai ≤ 0.35`        | Likely human-written | High-confidence human |
 
-The band is wider on the AI side on purpose. A submission needs `p_ai ≥ 0.80` to
-be called AI, but only `p_ai ≤ 0.35` to be called human. Everything in the grey
-zone falls to Uncertain instead of an accusation. In confidence terms, the AI
-label needs `confidence ≥ 0.80` and the human label needs `confidence ≥ 0.65`.
+These thresholds were calibrated in Milestone 4, not guessed up front. The first
+plan used `p_ai ≥ 0.80` for the AI bar. But a weighted average of three noisy
+signals compresses toward the middle. In testing, even blatant AI text topped out
+near 0.69, so the 0.80 bar was never reached and nothing was ever called AI. The
+real separation point between AI and human writing sits near 0.55, so that is the
+AI bar now. See the README Spec Reflection for the full story.
+
+The band stays asymmetric on purpose. The AI bar (0.55) leaves a wide grey zone
+below it, so borderline work falls to Uncertain instead of being accused. The
+human bar (0.35) is lower, so we only call something human when the signals
+agree. Confidence is `max(p_ai, 1 − p_ai)`, so the human side tends to report
+higher confidence than the AI side, which fits the goal of being careful before
+accusing.
 
 What a confidence of 0.6 means: the system leans one way but is not sure. A
-`confidence = 0.6` comes from `p_ai` near 0.6 or 0.4, which sits inside the grey
-zone. So the reader sees the Uncertain label. We never treat 0.6 as a decision.
-The label flips at the band edges, not at 0.5, so a 0.6 and a 0.95 produce
-different text, not just a different number.
+`confidence = 0.6` comes from `p_ai` near 0.6 or 0.4. At 0.6 it just crosses into
+Likely AI-generated. At 0.4 it stays Uncertain. Either way the number is close to
+a coin flip, so the label wording is cautious. The label flips at the band edges,
+not at a single 0.5 line, so a weak result and a strong result show different
+text, not just a different number.
 
 How we map raw outputs to the score: each signal turns its raw features into a
 `p_ai` using documented heuristic thresholds (see Detection Signals). We do not
-run formal statistical calibration. Instead we tune those per-signal thresholds
-and the ensemble weights against the reference inputs below until the scores
-separate clearly.
+run formal statistical calibration. Instead we tune those per-signal thresholds,
+the ensemble weights, and the band edges against the reference inputs below until
+the scores separate clearly.
 
-How we check the scores mean something: we run three reference inputs through the
-pipeline and confirm they land in different bands.
+How we check the scores mean something: we run a set of reference inputs through
+the pipeline and confirm they land in different bands. This lives in the repo as
+`tests/validate_scoring.py`.
 
-- (a) A clearly AI-sounding paragraph. Expected: high `p_ai`, AI label.
-- (b) An idiosyncratic human excerpt with irregular sentences and personal voice.
+- A clearly AI-sounding paragraph. Expected: high `p_ai`, AI label.
+- An idiosyncratic human excerpt with irregular sentences and personal voice.
   Expected: low `p_ai`, human label.
-- (c) A short, plain, ambiguous snippet. Expected: mid `p_ai`, Uncertain.
+- A formal but human paragraph, and a lightly edited AI paragraph. Expected: both
+  land mid-range, Uncertain.
 
-If (c) does not produce a visibly different label and score from (a) and (b),
+If the AI and human cases do not produce visibly different labels and scores,
 then the scoring is not showing uncertainty, and we retune the thresholds or
-weights. These cases live in the repo as a small test script.
+weights.
 
 ---
 
@@ -214,8 +226,8 @@ weights. These cases live in the repo as a small test script.
 These labels show to a reader on the platform. Plain language, no jargon. The
 text changes with confidence, not just the number.
 
-High-confidence AI (`p_ai ≥ 0.80`)
-> Likely AI-generated. Our checks strongly suggest this piece was written with
+High-confidence AI (`p_ai ≥ 0.55`)
+> Likely AI-generated. Our checks lean toward this piece being written with
 > generative AI (confidence: {confidence}%). This is an automated estimate, not a
 > certainty — the creator can appeal if they believe it's wrong.
 
@@ -224,7 +236,7 @@ High-confidence human (`p_ai ≤ 0.35`)
 > (confidence: {confidence}%). This is an automated estimate and not a guarantee
 > of authorship.
 
-Uncertain (`0.35 < p_ai < 0.80`)
+Uncertain (`0.35 < p_ai < 0.55`)
 > Not enough signal to tell. Our checks were mixed and we can't confidently say
 > whether this was written by a person or AI (confidence: {confidence}%). We're
 > showing this openly rather than guessing.

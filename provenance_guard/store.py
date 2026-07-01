@@ -39,14 +39,17 @@ def init_db() -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS submissions (
-                content_id  TEXT PRIMARY KEY,
-                text        TEXT NOT NULL,
-                creator_id  TEXT,
-                attribution TEXT NOT NULL,
-                confidence  REAL NOT NULL,
-                llm_score   REAL NOT NULL,
-                status      TEXT NOT NULL DEFAULT 'classified',
-                created_at  TEXT NOT NULL
+                content_id       TEXT PRIMARY KEY,
+                text             TEXT NOT NULL,
+                creator_id       TEXT,
+                attribution      TEXT NOT NULL,
+                probability_ai   REAL NOT NULL,
+                confidence       REAL NOT NULL,
+                llm_score        REAL NOT NULL,
+                stylometry_score REAL NOT NULL,
+                lexical_score    REAL NOT NULL,
+                status           TEXT NOT NULL DEFAULT 'classified',
+                created_at       TEXT NOT NULL
             );
             """
         )
@@ -57,16 +60,20 @@ def save_submission(record: dict) -> None:
     with _connect() as conn:
         conn.execute(
             """INSERT INTO submissions
-               (content_id, text, creator_id, attribution, confidence,
-                llm_score, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (content_id, text, creator_id, attribution, probability_ai,
+                confidence, llm_score, stylometry_score, lexical_score,
+                status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["content_id"],
                 record["text"],
                 record.get("creator_id"),
                 record["attribution"],
+                record["probability_ai"],
                 record["confidence"],
                 record["llm_score"],
+                record["stylometry_score"],
+                record["lexical_score"],
                 record.get("status", "classified"),
                 record["created_at"],
             ),

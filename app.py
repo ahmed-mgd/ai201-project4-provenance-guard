@@ -1,3 +1,14 @@
+"""Provenance Guard — Flask API (Milestone 4).
+
+Scope so far:
+  POST /submit   classify text with the multi-signal ensemble, return a result
+  GET  /log      return recent audit-log entries as JSON
+  GET  /health   liveness check
+
+The label is still a placeholder here. Milestone 5 adds the real transparency
+label, the appeal endpoint, and rate limiting.
+"""
+
 from __future__ import annotations
 
 import uuid
@@ -5,28 +16,12 @@ import uuid
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
-from provenance_guard import store
-from provenance_guard.signals import llm_signal
+from provenance_guard import pipeline, store
 
 load_dotenv()
 
 app = Flask(__name__)
 store.init_db()
-
-# Attribution thresholds on a probability-of-AI score. Asymmetric on purpose:
-# the bar to call something AI is higher than the bar to call it human (see
-# planning.md → Uncertainty Representation). For now the score comes from signal
-# 1 alone; Milestone 4 moves this onto the ensemble.
-AI_THRESHOLD = 0.80
-HUMAN_THRESHOLD = 0.35
-
-
-def attribution_from_score(p_ai: float) -> str:
-    if p_ai >= AI_THRESHOLD:
-        return "likely_ai"
-    if p_ai <= HUMAN_THRESHOLD:
-        return "likely_human"
-    return "uncertain"
 
 
 @app.get("/health")
@@ -43,18 +38,15 @@ def submit():
     if not text:
         return jsonify({"error": "Field 'text' is required and cannot be empty."}), 400
 
-    # Signal 1: LLM semantic classifier. Returns {p_ai, features}.
-    signal1 = llm_signal.analyze(text)
-    llm_score = signal1["p_ai"]
+    # Run the multi-signal ensemble: combined probability_ai, confidence,
+    # attribution, and each signal's individual score.
+    result = pipeline.classify(text)
+    signals = result["signals"]
 
-    attribution = attribution_from_score(llm_score)
-
-    # Placeholder confidence and label. Real ensemble confidence lands in M4 and
-    # the real transparency label in M5.
-    confidence = round(max(llm_score, 1.0 - llm_score), 3)
+    # Label is still a placeholder; the real transparency label lands in M5.
     label = {
         "variant": "placeholder",
-        "text": f"[placeholder] attribution={attribution} "
+        "text": f"[placeholder] attribution={result['attribution']} "
                 f"(real label added in Milestone 5)",
     }
 
@@ -65,30 +57,45 @@ def submit():
         "content_id": content_id,
         "text": text,
         "creator_id": creator_id,
-        "attribution": attribution,
-        "confidence": confidence,
-        "llm_score": llm_score,
+        "attribution": result["attribution"],
+        "probability_ai": result["probability_ai"],
+        "confidence": result["confidence"],
+        "llm_score": signals["llm"]["p_ai"],
+        "stylometry_score": signals["stylometry"]["p_ai"],
+        "lexical_score": signals["lexical"]["p_ai"],
         "status": "classified",
         "created_at": created_at,
     })
 
+    # Audit log records each signal's individual score alongside the combined
+    # confidence and probability.
     store.append_audit({
         "content_id": content_id,
         "creator_id": creator_id,
         "timestamp": created_at,
-        "attribution": attribution,
-        "confidence": confidence,
-        "llm_score": llm_score,
+        "attribution": result["attribution"],
+        "probability_ai": result["probability_ai"],
+        "confidence": result["confidence"],
+        "signals": {
+            "llm": signals["llm"]["p_ai"],
+            "stylometry": signals["stylometry"]["p_ai"],
+            "lexical": signals["lexical"]["p_ai"],
+        },
+        "weights": result["weights"],
         "status": "classified",
     })
 
     return jsonify({
         "content_id": content_id,
-        "attribution": attribution,
-        "confidence": confidence,
-        "llm_score": llm_score,
-        "signal_1": {"name": "llm_semantic", "p_ai": llm_score,
-                     "features": signal1["features"]},
+        "attribution": result["attribution"],
+        "confidence": result["confidence"],
+        "probability_ai": result["probability_ai"],
+        "short_text": result["short_text"],
+        "weights": result["weights"],
+        "signals": {
+            name: {"p_ai": s["p_ai"], "features": s["features"]}
+            for name, s in signals.items()
+        },
         "label": label,
     })
 
