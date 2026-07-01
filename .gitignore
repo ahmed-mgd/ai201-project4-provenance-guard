@@ -1,0 +1,20 @@
+# Environment / secrets
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local database / logs (keep committed samples explicitly if needed)
+*.db
+*.sqlite3
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+.claude

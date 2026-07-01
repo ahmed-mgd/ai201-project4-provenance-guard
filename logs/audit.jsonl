@@ -1,0 +1,3 @@
+{"content_id": "918b963d-c36f-40c2-961f-fcedbd124ea1", "creator_id": "test-user-1", "timestamp": "2026-07-01T05:48:59.668671+00:00", "attribution": "likely_human", "confidence": 0.8, "llm_score": 0.2, "status": "classified"}
+{"content_id": "c5fec79e-2ffa-4058-ace1-ca90c0a97677", "creator_id": "test-user-2", "timestamp": "2026-07-01T05:50:41.687560+00:00", "attribution": "likely_ai", "confidence": 0.8, "llm_score": 0.8, "status": "classified"}
+{"content_id": "82dcfb12-5856-45ed-ac6b-c01444baab1b", "creator_id": "test-user-3", "timestamp": "2026-07-01T05:50:42.015941+00:00", "attribution": "likely_human", "confidence": 0.8, "llm_score": 0.2, "status": "classified"}
